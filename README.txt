@@ -2,61 +2,53 @@
 
 Automatise les mises à jour sur **Fedora KDE Plasma**.
 
-Le système met à jour automatiquement :
+Le programme met automatiquement à jour :
 
 - Fedora et les paquets RPM
-- le kernel
+- Le kernel Linux
 - KDE Plasma
-- les applications Flatpak système
-- les firmwares compatibles avec `fwupd`
+- Les applications Flatpak
+- Les firmwares compatibles avec `fwupd`
 
-Des notifications KDE indiquent le début, la progression et la fin des mises à jour.
+Des notifications KDE indiquent la progression et le résultat des mises à jour.
+
+> **Aucun redémarrage automatique n'est effectué.**
 
 ## Installation
 
-Télécharger le projet :
+### 1. Télécharger le projet
 
 ```bash
 git clone https://github.com/jeroval/fedora-auto-update-installer.git
-```
-
-Entrer dans le dossier :
-
-```bash
 cd fedora-auto-update-installer
 ```
 
-Rendre l'installateur exécutable :
+### 2. Lancer l'installation
 
 ```bash
 chmod +x install.sh
-```
-
-Lancer l'installation :
-
-```bash
 sudo ./install.sh
 ```
 
-L'installateur vérifie les prérequis, installe les dépendances manquantes et configure automatiquement les services.
+C'est tout.
 
-Une notification KDE est envoyée à la fin pour vérifier que le système fonctionne.
+Le programme vérifie automatiquement les prérequis, installe les dépendances manquantes et configure les services nécessaires.
+
+Une notification KDE apparaît à la fin pour confirmer que l'installation fonctionne.
 
 ## Fonctionnement
 
-Après installation, les mises à jour sont lancées automatiquement :
+Une vérification des mises à jour est lancée :
 
-- quelques minutes après le démarrage du PC
-- puis environ une fois toutes les 24 heures
+- Quelques minutes après le démarrage du PC
+- Puis environ toutes les 24 heures
 
-Ordre des mises à jour :
+Les mises à jour sont effectuées dans cet ordre :
 
-1. Fedora / RPM
-2. Flatpak
-3. Firmware
-4. Notification KDE
-
-Aucun redémarrage automatique n'est effectué.
+1. **Fedora / RPM**
+2. **Flatpak**
+3. **Firmware**
+4. **Notification KDE**
 
 ## Lancer une mise à jour manuellement
 
@@ -64,25 +56,19 @@ Aucun redémarrage automatique n'est effectué.
 sudo systemctl start fedora-auto-update.service
 ```
 
-## Voir les logs
+## Suivre une mise à jour
+
+Pour afficher les opérations en cours :
 
 ```bash
 journalctl -fu fedora-auto-update.service
 ```
 
-Utiliser `Ctrl+C` pour quitter l'affichage des logs.
+Utiliser `Ctrl+C` pour quitter les logs.
 
-Cela n'arrête pas la mise à jour.
+Cela **n'arrête pas** la mise à jour.
 
 ## Voir le résultat
-
-État de la dernière exécution :
-
-```bash
-cat /run/fedora-auto-update/status
-```
-
-Détails :
 
 ```bash
 cat /run/fedora-auto-update/details
@@ -101,39 +87,22 @@ Total : 14 mises à jour
 Durée : 1 min 34 s
 ```
 
-## Vérifier que l'automatisation est active
-
-Mises à jour :
+## Vérifier les mises à jour automatiques
 
 ```bash
 systemctl status fedora-auto-update.timer
 ```
 
-Notifications KDE :
-
-```bash
-systemctl --user status fedora-update-notifier.timer
-```
-
-Dans les deux cas, l'état attendu est :
+Le timer doit être indiqué comme actif :
 
 ```text
 Active: active (waiting)
 ```
 
-## Structure du projet
+Pour vérifier les notifications :
 
-```text
-fedora-auto-update-installer/
-├── install.sh
-├── README.md
-└── files/
-    ├── fedora-auto-update
-    ├── fedora-auto-update.service
-    ├── fedora-auto-update.timer
-    ├── fedora-update-notifier
-    ├── fedora-update-notifier.service
-    └── fedora-update-notifier.timer
+```bash
+systemctl --user status fedora-update-notifier.timer
 ```
 
 ## En cas de problème
@@ -144,21 +113,19 @@ Afficher les logs :
 journalctl -u fedora-auto-update.service
 ```
 
-Afficher uniquement les logs du démarrage actuel :
+Afficher uniquement les logs depuis le dernier démarrage :
 
 ```bash
 journalctl -b -u fedora-auto-update.service
 ```
 
-Relancer une mise à jour :
+Relancer manuellement une mise à jour :
 
 ```bash
 sudo systemctl start fedora-auto-update.service
 ```
 
 ## Compatibilité
-
-Prévu pour :
 
 - Fedora Linux
 - KDE Plasma
