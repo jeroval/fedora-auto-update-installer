@@ -2,8 +2,9 @@
 Description=Monitor Fedora Automatic Update Status
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=10s
+OnStartupSec=30s
+# Attendre la fin de chaque tentative avant de programmer la suivante.
+OnUnitInactiveSec=10s
 AccuracySec=2s
 
 [Install]

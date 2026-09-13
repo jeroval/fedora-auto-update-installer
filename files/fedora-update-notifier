@@ -1,98 +1,78 @@
 #!/bin/bash
+# Lecture des événements publiés par le service système, sans privilèges root.
+set -Eeuo pipefail
+umask 077
 
-STATE_FILE="/run/fedora-auto-update/status"
-DETAIL_FILE="/run/fedora-auto-update/details"
-RUN_ID_FILE="/run/fedora-auto-update/run-id"
-
-CACHE_DIR="$HOME/.cache/fedora-auto-update"
+STATE_FILE="/var/lib/fedora-auto-update/state.json"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fedora-auto-update"
 CACHE_FILE="$CACHE_DIR/last-event"
-
 mkdir -p "$CACHE_DIR"
-
+exec 9>"$CACHE_DIR/notifier.lock"
+flock -n 9 || exit 0
 [ -f "$STATE_FILE" ] || exit 0
-[ -f "$RUN_ID_FILE" ] || exit 0
 
-STATUS="$(cat "$STATE_FILE")"
-RUN_ID="$(cat "$RUN_ID_FILE")"
-DETAIL="$(cat "$DETAIL_FILE" 2>/dev/null || true)"
-
-EVENT_ID="${RUN_ID}:${STATUS}"
-
-LAST_EVENT=""
-[ -f "$CACHE_FILE" ] && LAST_EVENT="$(cat "$CACHE_FILE")"
-
-[ "$EVENT_ID" = "$LAST_EVENT" ] && exit 0
-
+# Une session sans serveur de notifications sera réessayée au prochain tick.
 if ! busctl --user list 2>/dev/null | grep -q 'org.freedesktop.Notifications'; then
-    exit 1
-fi
-
-NOTIFY_STATUS=1
-
-case "$STATUS" in
-    RUNNING_DNF)
-        notify-send \
-            --app-name="Fedora Update" \
-            --icon=system-software-update \
-            --urgency=normal \
-            --expire-time=10000 \
-            "Mise à jour Fedora — Étape 1/3" \
-            "$DETAIL"
-        NOTIFY_STATUS=$?
-        ;;
-
-    RUNNING_FLATPAK)
-        notify-send \
-            --app-name="Fedora Update" \
-            --icon=system-software-update \
-            --urgency=normal \
-            --expire-time=10000 \
-            "Mise à jour Fedora — Étape 2/3" \
-            "$DETAIL"
-        NOTIFY_STATUS=$?
-        ;;
-
-    RUNNING_FIRMWARE)
-        notify-send \
-            --app-name="Fedora Update" \
-            --icon=system-software-update \
-            --urgency=normal \
-            --expire-time=10000 \
-            "Mise à jour Fedora — Étape 3/3" \
-            "$DETAIL"
-        NOTIFY_STATUS=$?
-        ;;
-
-    SUCCESS)
-        notify-send \
-            --app-name="Fedora Update" \
-            --icon=emblem-default \
-            --urgency=normal \
-            --expire-time=15000 \
-            "Mise à jour Fedora terminée ✓" \
-            "$DETAIL"
-        NOTIFY_STATUS=$?
-        ;;
-
-    ERROR)
-        notify-send \
-            --app-name="Fedora Update" \
-            --icon=dialog-error \
-            --urgency=critical \
-            --expire-time=30000 \
-            "Erreur pendant la mise à jour Fedora" \
-            "$DETAIL"
-        NOTIFY_STATUS=$?
-        ;;
-
-    *)
-        exit 0
-        ;;
-esac
-
-if [ "$NOTIFY_STATUS" -eq 0 ]; then
-    echo "$EVENT_ID" > "$CACHE_FILE"
     exit 0
 fi
 
-exit 1
+EVENTS="$(mktemp "$CACHE_DIR/.events.XXXXXX")"
+trap 'rm -f -- "$EVENTS"' EXIT
+python3 - "$STATE_FILE" "$CACHE_FILE" > "$EVENTS" <<'PYTHON'
+import json, pathlib, sys
+state = json.loads(pathlib.Path(sys.argv[1]).read_text())
+try:
+    last = pathlib.Path(sys.argv[2]).read_text().strip()
+except FileNotFoundError:
+    last = ""
+boot_id = pathlib.Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+if state.get("boot_id", boot_id) != boot_id and state["events"][-1]["status"] not in ("SUCCESS", "ERROR"):
+    state["events"] = [{"status": "ERROR", "details":
+        "La dernière mise à jour a été interrompue par un arrêt de la machine. Une vérification est prévue après le démarrage."}]
+    state["run_id"] += ":interrupted"
+events = [
+    (f'{state["run_id"]}:{i}', event["status"], event["details"])
+    for i, event in enumerate(state["events"])
+]
+ids = [event[0] for event in events]
+start = ids.index(last) + 1 if last in ids else 0
+for event in events[start:]:
+    for value in event:
+        sys.stdout.buffer.write(value.encode() + b"\0")
+PYTHON
+
+while IFS= read -r -d '' EVENT_ID &&
+      IFS= read -r -d '' STATUS &&
+      IFS= read -r -d '' DETAIL; do
+    ICON=system-software-update
+    URGENCY=normal
+    case "$STATUS" in
+        RUNNING_DNF) TITLE="Mise à jour Fedora — Démarrage / DNF (1/3)" ;;
+        RUNNING_FLATPAK) TITLE="Mise à jour Fedora — Flatpak (2/3)" ;;
+        RUNNING_FIRMWARE) TITLE="Mise à jour Fedora — Firmware (3/3)" ;;
+        SUCCESS) TITLE="Mise à jour Fedora terminée"; ICON=emblem-default ;;
+        RECOMMENDATION) TITLE="Mise à jour Fedora — Recommandation"; ICON=dialog-information ;;
+        ERROR) TITLE="Erreur pendant la mise à jour Fedora"; ICON=dialog-error; URGENCY=critical ;;
+        *) continue ;;
+    esac
+    RECOMMENDATION_CACHE=""
+    if [ "$STATUS" = RECOMMENDATION ]; then
+        RECOMMENDATION_KEY="$(printf '%s' "$DETAIL" | sha256sum)"
+        RECOMMENDATION_KEY="${RECOMMENDATION_KEY%% *}"
+        BOOT_ID="$(cat /proc/sys/kernel/random/boot_id)"
+        RECOMMENDATION_CACHE="$CACHE_DIR/advice-$RECOMMENDATION_KEY"
+        if [ -f "$RECOMMENDATION_CACHE" ] &&
+           [ "$(cat "$RECOMMENDATION_CACHE")" = "$BOOT_ID" ]; then
+            printf '%s\n' "$EVENT_ID" > "$CACHE_FILE"
+            continue
+        fi
+    fi
+    notify-send --app-name="Fedora Update" --icon="$ICON" --urgency="$URGENCY" \
+        --expire-time=15000 "$TITLE" "$DETAIL"
+    if [ -n "$RECOMMENDATION_CACHE" ]; then
+        printf '%s\n' "$BOOT_ID" > "$RECOMMENDATION_CACHE"
+    fi
+    # Un événement n'est acquitté qu'après son envoi réussi.
+    printf '%s\n' "$EVENT_ID" > "$CACHE_FILE.tmp"
+    mv -f -- "$CACHE_FILE.tmp" "$CACHE_FILE"
+done < "$EVENTS"

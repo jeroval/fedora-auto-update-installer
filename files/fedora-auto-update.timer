@@ -4,7 +4,6 @@ Description=Schedule Fedora Complete Automatic Updates
 [Timer]
 OnBootSec=5min
 OnUnitActiveSec=24h
-Persistent=true
 RandomizedDelaySec=5min
 
 [Install]

@@ -3,15 +3,21 @@ Description=Fedora Complete Automatic Update
 After=network-online.target
 Wants=network-online.target
 
-StartLimitIntervalSec=30min
-StartLimitBurst=5
+StartLimitIntervalSec=24h
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
+StateDirectory=fedora-auto-update
+StateDirectoryMode=0755
+StandardOutput=journal
+StandardError=journal
+UMask=0022
 ExecStart=/usr/local/sbin/fedora-auto-update
 
 Restart=on-failure
-RestartSec=2min
+RestartSec=10min
+RestartPreventExitStatus=78
 
 TimeoutStartSec=60min
 
