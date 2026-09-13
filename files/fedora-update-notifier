@@ -1,0 +1,98 @@
+#!/bin/bash
+
+STATE_FILE="/run/fedora-auto-update/status"
+DETAIL_FILE="/run/fedora-auto-update/details"
+RUN_ID_FILE="/run/fedora-auto-update/run-id"
+
+CACHE_DIR="$HOME/.cache/fedora-auto-update"
+CACHE_FILE="$CACHE_DIR/last-event"
+
+mkdir -p "$CACHE_DIR"
+
+[ -f "$STATE_FILE" ] || exit 0
+[ -f "$RUN_ID_FILE" ] || exit 0
+
+STATUS="$(cat "$STATE_FILE")"
+RUN_ID="$(cat "$RUN_ID_FILE")"
+DETAIL="$(cat "$DETAIL_FILE" 2>/dev/null || true)"
+
+EVENT_ID="${RUN_ID}:${STATUS}"
+
+LAST_EVENT=""
+[ -f "$CACHE_FILE" ] && LAST_EVENT="$(cat "$CACHE_FILE")"
+
+[ "$EVENT_ID" = "$LAST_EVENT" ] && exit 0
+
+if ! busctl --user list 2>/dev/null | grep -q 'org.freedesktop.Notifications'; then
+    exit 1
+fi
+
+NOTIFY_STATUS=1
+
+case "$STATUS" in
+    RUNNING_DNF)
+        notify-send \
+            --app-name="Fedora Update" \
+            --icon=system-software-update \
+            --urgency=normal \
+            --expire-time=10000 \
+            "Mise à jour Fedora — Étape 1/3" \
+            "$DETAIL"
+        NOTIFY_STATUS=$?
+        ;;
+
+    RUNNING_FLATPAK)
+        notify-send \
+            --app-name="Fedora Update" \
+            --icon=system-software-update \
+            --urgency=normal \
+            --expire-time=10000 \
+            "Mise à jour Fedora — Étape 2/3" \
+            "$DETAIL"
+        NOTIFY_STATUS=$?
+        ;;
+
+    RUNNING_FIRMWARE)
+        notify-send \
+            --app-name="Fedora Update" \
+            --icon=system-software-update \
+            --urgency=normal \
+            --expire-time=10000 \
+            "Mise à jour Fedora — Étape 3/3" \
+            "$DETAIL"
+        NOTIFY_STATUS=$?
+        ;;
+
+    SUCCESS)
+        notify-send \
+            --app-name="Fedora Update" \
+            --icon=emblem-default \
+            --urgency=normal \
+            --expire-time=15000 \
+            "Mise à jour Fedora terminée ✓" \
+            "$DETAIL"
+        NOTIFY_STATUS=$?
+        ;;
+
+    ERROR)
+        notify-send \
+            --app-name="Fedora Update" \
+            --icon=dialog-error \
+            --urgency=critical \
+            --expire-time=30000 \
+            "Erreur pendant la mise à jour Fedora" \
+            "$DETAIL"
+        NOTIFY_STATUS=$?
+        ;;
+
+    *)
+        exit 0
+        ;;
+esac
+
+if [ "$NOTIFY_STATUS" -eq 0 ]; then
+    echo "$EVENT_ID" > "$CACHE_FILE"
+    exit 0
+fi
+
+exit 1

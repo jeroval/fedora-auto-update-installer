@@ -1,0 +1,14 @@
+[Unit]
+Description=Fedora Update KDE Notification
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/fedora-update-notifier
+
+Restart=on-failure
+RestartSec=10s
+
+StartLimitIntervalSec=5min
+StartLimitBurst=20
