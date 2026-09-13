@@ -1,0 +1,82 @@
+#!/bin/bash
+# Exécuté uniquement par systemd --user, sans sudo ni accès aux Flatpak système.
+set -Eeuo pipefail
+umask 077
+export PATH=/usr/bin:/bin
+export LC_ALL=C
+
+if [ "$EUID" -eq 0 ]; then
+    echo "Les Flatpak utilisateur ne doivent pas être mis à jour avec root." >&2
+    exit 1
+fi
+
+STATE_DIR="$HOME/.local/state/fedora-auto-update-user"
+mkdir -p "$STATE_DIR"
+exec 9>"$STATE_DIR/update.lock"
+flock -n 9 || exit 1
+WORK_DIR="$(mktemp -d "$STATE_DIR/.work.XXXXXX")"
+FINISHED=0
+write_result() {
+    local status=$1 details=$2
+    printf '%s\n' "$details" > "$WORK_DIR/result.txt"
+    printf '%s\n' "$status" > "$WORK_DIR/status"
+    printf '%s\n' "${INVOCATION_ID:-manual}" > "$WORK_DIR/invocation-id"
+    mv -f "$WORK_DIR/result.txt" "$STATE_DIR/result.txt"
+    mv -f "$WORK_DIR/invocation-id" "$STATE_DIR/invocation-id"
+    mv -f "$WORK_DIR/status" "$STATE_DIR/status"
+}
+cleanup() {
+    local rc=$?
+    trap - EXIT
+    if [ "$FINISHED" -eq 0 ]; then
+        write_result ERROR "Mise à jour Flatpak utilisateur interrompue (code $rc)." || true
+        [ "$rc" -ne 0 ] || rc=1
+    fi
+    rm -rf -- "$WORK_DIR"
+    exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+write_result RUNNING "Mise à jour des Flatpak utilisateur en cours."
+notify-send --app-name="Fedora Update" --icon=system-software-update \
+    "Flatpak utilisateur — Démarrage" "Recherche des mises à jour de votre installation personnelle." ||
+    echo "Notification de démarrage indisponible ; poursuite de la mise à jour." >&2
+
+BEFORE_OK=1
+flatpak list --user --app --columns=ref,active > "$WORK_DIR/before" || BEFORE_OK=0
+UPDATE_RC=0
+flatpak update --user --noninteractive -y || UPDATE_RC=$?
+AFTER_OK=1
+flatpak list --user --app --columns=ref,active > "$WORK_DIR/after" || AFTER_OK=0
+
+COUNT="indisponible"
+if [ "$BEFORE_OK" -eq 1 ] && [ "$AFTER_OK" -eq 1 ]; then
+    COUNT="$(python3 - "$WORK_DIR/before" "$WORK_DIR/after" <<'PY'
+import pathlib, sys
+def snapshot(path):
+    return dict(line.split("\t", 1) for line in pathlib.Path(path).read_text().splitlines() if line)
+before, after = map(snapshot, sys.argv[1:])
+print(sum(before.get(ref) != commit for ref, commit in after.items()))
+PY
+)" || COUNT="indisponible"
+fi
+STATUS=SUCCESS
+TITLE="Flatpak utilisateur — Mise à jour terminée"
+URGENCY=normal
+if [ "$UPDATE_RC" -ne 0 ]; then
+    STATUS=ERROR
+    TITLE="Flatpak utilisateur — Échec de la mise à jour"
+    URGENCY=critical
+fi
+DETAIL="$TITLE
+$COUNT application(s) installée(s) ou mise(s) à jour.
+Code Flatpak : $UPDATE_RC
+$(date --iso-8601=seconds)
+Logs : journalctl --user -u fedora-user-flatpak-update.service"
+write_result "$STATUS" "$DETAIL"
+FINISHED=1
+notify-send --app-name="Fedora Update" --icon=system-software-update --urgency="$URGENCY" \
+    "$TITLE" "$DETAIL" || echo "Notification finale indisponible ; résultat conservé." >&2
+[ "$UPDATE_RC" -eq 0 ]

@@ -49,7 +49,7 @@ while IFS= read -r -d '' EVENT_ID &&
         RUNNING_DNF) TITLE="Mise à jour Fedora — Démarrage / DNF (1/3)" ;;
         RUNNING_FLATPAK) TITLE="Mise à jour Fedora — Flatpak (2/3)" ;;
         RUNNING_FIRMWARE) TITLE="Mise à jour Fedora — Firmware (3/3)" ;;
-        SUCCESS) TITLE="Mise à jour Fedora terminée"; ICON=emblem-default ;;
+        SUCCESS) TITLE="Mises à jour système terminées"; ICON=emblem-default ;;
         RECOMMENDATION) TITLE="Mise à jour Fedora — Recommandation"; ICON=dialog-information ;;
         ERROR) TITLE="Erreur pendant la mise à jour Fedora"; ICON=dialog-error; URGENCY=critical ;;
         *) continue ;;

@@ -70,9 +70,33 @@ elif [ -f "$USER_SYSTEMD_DIR/fedora-update-notifier.timer" ]; then
     run_as_user systemctl --user --no-reload disable fedora-update-notifier.timer
 fi
 
+# Désactiver le timer personnel puis attendre sa transaction avant de retirer l'outil.
+if [ -S "$USER_BUS" ]; then
+    if [ "$(run_as_user systemctl --user show fedora-user-flatpak-update.timer -p LoadState --value)" != not-found ]; then
+        run_as_user systemctl --user disable --now fedora-user-flatpak-update.timer
+    fi
+    if [ "$(run_as_user systemctl --user show fedora-user-flatpak-update.service -p LoadState --value)" != not-found ]; then
+        if [ -d "$USER_HOME/.local/state/fedora-auto-update-user" ]; then
+            run_as_user bash -c '
+                exec 7>"$HOME/.local/state/fedora-auto-update-user/update.lock"
+                flock -x 7
+                systemctl --user stop fedora-user-flatpak-update.service
+            '
+        else
+            run_as_user systemctl --user stop fedora-user-flatpak-update.service
+        fi
+    fi
+elif [ -f "$USER_SYSTEMD_DIR/fedora-user-flatpak-update.timer" ]; then
+    run_as_user systemctl --user --no-reload disable fedora-user-flatpak-update.timer
+fi
+
 # Les suppressions dans le home sont réalisées sans privilèges root.
 run_as_user rm -f -- \
     "$USER_HOME/.local/bin/fedora-update-notifier" \
+    "$USER_HOME/.local/bin/fedora-user-flatpak-update" \
+    "$USER_SYSTEMD_DIR/fedora-user-flatpak-update.service" \
+    "$USER_SYSTEMD_DIR/fedora-user-flatpak-update.timer" \
+    "$USER_SYSTEMD_DIR/timers.target.wants/fedora-user-flatpak-update.timer" \
     "$USER_SYSTEMD_DIR/fedora-update-notifier.service" \
     "$USER_SYSTEMD_DIR/fedora-update-notifier.timer" \
     "$USER_SYSTEMD_DIR/timers.target.wants/fedora-update-notifier.timer"
@@ -91,6 +115,10 @@ for path in /usr/local/sbin/fedora-auto-update \
     /etc/systemd/system/fedora-auto-update.service \
     /etc/systemd/system/fedora-auto-update.timer \
     "$USER_HOME/.local/bin/fedora-update-notifier" \
+    "$USER_HOME/.local/bin/fedora-user-flatpak-update" \
+    "$USER_SYSTEMD_DIR/fedora-user-flatpak-update.service" \
+    "$USER_SYSTEMD_DIR/fedora-user-flatpak-update.timer" \
+    "$USER_SYSTEMD_DIR/timers.target.wants/fedora-user-flatpak-update.timer" \
     "$USER_SYSTEMD_DIR/fedora-update-notifier.service" \
     "$USER_SYSTEMD_DIR/fedora-update-notifier.timer"; do
     if [ -e "$path" ] || [ -L "$path" ]; then

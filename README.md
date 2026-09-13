@@ -7,7 +7,7 @@ Le programme met automatiquement à jour :
 - Fedora et les paquets RPM
 - Le kernel Linux
 - KDE Plasma
-- Les applications Flatpak installées au niveau système (pas celles installées avec `--user`)
+- Les applications Flatpak système et celles de l’utilisateur ayant installé l’outil
 - Les firmwares compatibles avec `fwupd`
 
 Des notifications KDE indiquent la progression et le résultat des mises à jour.
@@ -50,7 +50,7 @@ toutes les dix secondes lorsque la session graphique est disponible.
 
 Le bilan final vérifie :
 
-- Les contenus des six fichiers installés, leurs propriétaires, leurs permissions et les unités systemd.
+- Les contenus des neuf fichiers installés, leurs propriétaires, leurs permissions et les unités systemd.
 - L'activation du timer système.
 - La réussite d'une **nouvelle** exécution DNF, Flatpak et firmware, distincte d'un ancien résultat.
 - L'activation du timer utilisateur et l'exécution du véritable service de notification.
@@ -92,7 +92,7 @@ Une fois les fichiers validés et déployés, un échec d'activation des timers 
 signalé ; les nouveaux fichiers restent installés et une relance de l'installateur
 permet de réessayer. La restauration concerne les fichiers déployés, pas les
 dépendances RPM installées. Une coupure électrique pendant le déploiement nécessite
-de relancer l'installateur ; le remplacement des six fichiers n'est pas une
+de relancer l'installateur ; le remplacement des neuf fichiers n'est pas une
 transaction atomique unique.
 
 Les scripts système sont installés avec le propriétaire root et les permissions
@@ -258,6 +258,45 @@ ou terminer certaines mises à jour firmware.
 
 Fedora KDE classique avec DNF5 est pris en charge. Fedora Kinoite et
 les autres variantes immuables ne le sont pas.
+
+## Flatpak utilisateur
+
+Les installations personnelles sont gérées par un service **systemd utilisateur**
+distinct. Il exécute uniquement `flatpak update --user --noninteractive -y`,
+sans sudo, et refuse de fonctionner avec root. Il utilise les dépôts déjà
+configurés, sans en ajouter ni modifier les permissions des applications.
+
+Le timer démarre environ 5 à 10 minutes après le lancement du gestionnaire
+systemd utilisateur, puis environ toutes les 24 heures. Il est activé pendant
+l'installation ; si la session est disponible, le bilan lance et vérifie une
+exécution réelle. Sinon, ce contrôle est déclaré non vérifié et l'exécution
+est reportée à la connexion. Le linger n'est pas activé par l'installateur.
+
+Le service et son verrou empêchent les exécutions simultanées de ce script.
+Une notification annonce le démarrage puis le succès ou l'échec. Un échec
+d'affichage n'empêche pas les mises à jour ; il est journalisé.
+Une erreur Flatpak conserve un résultat en erreur ; la prochaine tentative
+automatique a lieu au prochain déclenchement du timer, sans boucle de reprise rapide.
+La session doit rester ouverte pour laisser la transaction se terminer.
+
+```bash
+systemctl --user status fedora-user-flatpak-update.timer
+systemctl --user start --no-block fedora-user-flatpak-update.service
+journalctl --user -u fedora-user-flatpak-update.service
+cat ~/.local/state/fedora-auto-update-user/result.txt
+```
+
+Les compteurs comparent les commits des applications avant/après. Les runtimes
+sont également mis à jour mais ne sont pas comptés comme applications.
+Le résultat personnel reste séparé du résultat système dans `/var/lib`.
+Le bilan d'installation vérifie les deux. Un succès système ne signifie donc
+pas que les Flatpak utilisateur ont eux aussi réussi.
+
+Seul l'utilisateur qui lance `sudo ./install.sh` est configuré : les autres
+comptes ne sont pas parcourus. Évitez de lancer simultanément Discover ou
+une autre commande Flatpak, qui utilise ses propres mécanismes de verrouillage.
+La désinstallation retire les nouveaux scripts et unités, sans supprimer
+les applications personnelles ni leur résultat conservé dans le home.
 
 ## Recommandations utilisateur
 

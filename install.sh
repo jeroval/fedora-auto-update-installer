@@ -14,6 +14,9 @@ SYSTEM_TIMER_SRC="$FILES_DIR/fedora-auto-update.timer"
 USER_NOTIFIER_SRC="$FILES_DIR/fedora-update-notifier"
 USER_SERVICE_SRC="$FILES_DIR/fedora-update-notifier.service"
 USER_TIMER_SRC="$FILES_DIR/fedora-update-notifier.timer"
+USER_FLATPAK_SRC="$FILES_DIR/fedora-user-flatpak-update"
+USER_FLATPAK_SERVICE_SRC="$FILES_DIR/fedora-user-flatpak-update.service"
+USER_FLATPAK_TIMER_SRC="$FILES_DIR/fedora-user-flatpak-update.timer"
 
 SYSTEM_SCRIPT_DST="/usr/local/sbin/fedora-auto-update"
 SYSTEM_SERVICE_DST="/etc/systemd/system/fedora-auto-update.service"
@@ -61,6 +64,9 @@ USER_SYSTEMD_DIR="$USER_HOME/.config/systemd/user"
 USER_NOTIFIER_DST="$USER_BIN_DIR/fedora-update-notifier"
 USER_SERVICE_DST="$USER_SYSTEMD_DIR/fedora-update-notifier.service"
 USER_TIMER_DST="$USER_SYSTEMD_DIR/fedora-update-notifier.timer"
+USER_FLATPAK_DST="$USER_BIN_DIR/fedora-user-flatpak-update"
+USER_FLATPAK_SERVICE_DST="$USER_SYSTEMD_DIR/fedora-user-flatpak-update.service"
+USER_FLATPAK_TIMER_DST="$USER_SYSTEMD_DIR/fedora-user-flatpak-update.timer"
 
 # sudo ne conserve pas nécessairement le contexte de la session graphique.
 USER_RUNTIME="/run/user/$USER_UID"
@@ -221,6 +227,9 @@ REQUIRED_FILES=(
     "$USER_NOTIFIER_SRC"
     "$USER_SERVICE_SRC"
     "$USER_TIMER_SRC"
+    "$USER_FLATPAK_SRC"
+    "$USER_FLATPAK_SERVICE_SRC"
+    "$USER_FLATPAK_TIMER_SRC"
 )
 
 for file in "${REQUIRED_FILES[@]}"; do
@@ -237,6 +246,11 @@ SYSTEM_TIMER_SRC="$STAGE/fedora-auto-update.timer"
 USER_NOTIFIER_SRC="$STAGE/fedora-update-notifier"
 USER_SERVICE_SRC="$STAGE/fedora-update-notifier.service"
 USER_TIMER_SRC="$STAGE/fedora-update-notifier.timer"
+USER_FLATPAK_SRC="$STAGE/fedora-user-flatpak-update"
+USER_FLATPAK_SERVICE_SRC="$STAGE/fedora-user-flatpak-update.service"
+USER_FLATPAK_TIMER_SRC="$STAGE/fedora-user-flatpak-update.timer"
+chmod 755 "$USER_FLATPAK_SRC"
+bash -n "$USER_FLATPAK_SRC"
 ok "Tous les fichiers source sont présents"
 
 # Dépendances
@@ -303,6 +317,10 @@ systemd-analyze verify "$STAGE/verify/fedora-auto-update.service"     "$STAGE/ve
 run_as_user systemd-analyze --user verify "$STAGE/verify/fedora-update-notifier.service"     "$STAGE/verify/fedora-update-notifier.timer"
 
 
+sed "s|^ExecStart=.*|ExecStart=$USER_FLATPAK_SRC|" "$USER_FLATPAK_SERVICE_SRC" > "$STAGE/verify/fedora-user-flatpak-update.service"
+cp "$USER_FLATPAK_TIMER_SRC" "$STAGE/verify/"
+run_as_user systemd-analyze --user verify "$STAGE/verify/fedora-user-flatpak-update.service" "$STAGE/verify/fedora-user-flatpak-update.timer"
+
 # Installation système
 info "Installation des fichiers système"
 install -d -o root -g root -m 0755 /usr/local/sbin /etc/systemd/system /var/lib/fedora-auto-update
@@ -330,6 +348,10 @@ deploy "$USER_SERVICE_SRC" "$USER_SERVICE_DST" 0644 user
 
 deploy "$USER_TIMER_SRC" "$USER_TIMER_DST" 0644 user
 
+deploy "$USER_FLATPAK_SRC" "$USER_FLATPAK_DST" 0755 user
+deploy "$USER_FLATPAK_SERVICE_SRC" "$USER_FLATPAK_SERVICE_DST" 0644 user
+deploy "$USER_FLATPAK_TIMER_SRC" "$USER_FLATPAK_TIMER_DST" 0644 user
+run_as_user systemd-analyze --user verify "$USER_FLATPAK_SERVICE_DST" "$USER_FLATPAK_TIMER_DST"
 ok "Fichiers utilisateur installés"
 
 # Validation systemd
@@ -360,25 +382,29 @@ info "Vérification des permissions"
 [ "$(stat -c '%U' "$USER_NOTIFIER_DST")" = "$INSTALL_USER" ] ||
     die "Propriétaire incorrect sur $USER_NOTIFIER_DST"
 
-for file in "$USER_NOTIFIER_DST" "$USER_SERVICE_DST" "$USER_TIMER_DST"; do
+for file in "$USER_NOTIFIER_DST" "$USER_SERVICE_DST" "$USER_TIMER_DST" "$USER_FLATPAK_DST" "$USER_FLATPAK_SERVICE_DST" "$USER_FLATPAK_TIMER_DST"; do
     [ "$(stat -c '%u' "$file")" = "$USER_UID" ] || die "Propriétaire incorrect : $file"
 done
-# Vérifier les six contenus, pas seulement leur présence.
+# Vérifier les neuf contenus, pas seulement leur présence.
 for pair in \
     "$SYSTEM_SCRIPT_SRC|$SYSTEM_SCRIPT_DST" \
     "$SYSTEM_SERVICE_SRC|$SYSTEM_SERVICE_DST" \
     "$SYSTEM_TIMER_SRC|$SYSTEM_TIMER_DST" \
     "$USER_NOTIFIER_SRC|$USER_NOTIFIER_DST" \
     "$USER_SERVICE_SRC|$USER_SERVICE_DST" \
-    "$USER_TIMER_SRC|$USER_TIMER_DST"; do
+    "$USER_TIMER_SRC|$USER_TIMER_DST" \
+    "$USER_FLATPAK_SRC|$USER_FLATPAK_DST" \
+    "$USER_FLATPAK_SERVICE_SRC|$USER_FLATPAK_SERVICE_DST" \
+    "$USER_FLATPAK_TIMER_SRC|$USER_FLATPAK_TIMER_DST"; do
     IFS='|' read -r source destination <<< "$pair"
     cmp -s "$source" "$destination" || die "Contenu installé incorrect : $destination"
 done
 [ "$(stat -c '%a' "$USER_NOTIFIER_DST")" = 755 ] || die "Permissions du notificateur incorrectes"
-for file in "$USER_SERVICE_DST" "$USER_TIMER_DST"; do
+for file in "$USER_SERVICE_DST" "$USER_TIMER_DST" "$USER_FLATPAK_SERVICE_DST" "$USER_FLATPAK_TIMER_DST"; do
     [ "$(stat -c '%a' "$file")" = 644 ] || die "Permissions incorrectes : $file"
 done
-ok "Contenus et permissions des six fichiers vérifiés"
+[ "$(stat -c '%a' "$USER_FLATPAK_DST")" = 755 ] || die "Permissions Flatpak utilisateur incorrectes"
+ok "Contenus et permissions des neuf fichiers vérifiés"
 
 # Les fichiers sont validés. Les overrides systemd et l'état sont conservés.
 systemctl daemon-reload
@@ -393,7 +419,7 @@ flock -u 8
 exec 8>&-
 
 # Activer hors ligne : les notifications seront prêtes à la prochaine connexion.
-run_user_systemctl --no-reload enable fedora-update-notifier.timer
+run_user_systemctl --no-reload enable fedora-update-notifier.timer fedora-user-flatpak-update.timer
 
 # Recharger et activer le timer système
 systemctl daemon-reload ||
@@ -506,6 +532,26 @@ if [ "$USER_SYSTEMD_OK" -eq 1 ]; then
 fi
 case "$NOTIFICATION_CHECK" in VALIDÉ*) ;; *) CHECK_FAILED=1 ;; esac
 
+USER_FLATPAK_CHECK="NON VÉRIFIÉ — session utilisateur indisponible"
+if [ "$USER_SYSTEMD_OK" -eq 1 ]; then
+    info "Vérification des Flatpak utilisateur, sans privilèges root"
+    USER_FLATPAK_CHECK="ÉCHEC — consulter journalctl --user -u fedora-user-flatpak-update.service"
+    run_user_systemctl reset-failed fedora-user-flatpak-update.service
+    if run_user_systemctl start fedora-user-flatpak-update.service &&
+       [ "$(run_user_systemctl show fedora-user-flatpak-update.service -p Result --value)" = success ] &&
+       [ "$(run_as_user cat "$USER_HOME/.local/state/fedora-auto-update-user/status" 2>/dev/null || true)" = SUCCESS ] &&
+       [ "$(run_as_user cat "$USER_HOME/.local/state/fedora-auto-update-user/invocation-id" 2>/dev/null || true)" = "$(run_user_systemctl show fedora-user-flatpak-update.service -p InvocationID --value)" ]; then
+        USER_FLATPAK_CHECK="VALIDÉ — applications personnelles vérifiées"
+    fi
+    if ! run_user_systemctl restart fedora-user-flatpak-update.timer ||
+       ! run_user_systemctl is-active fedora-user-flatpak-update.timer >/dev/null 2>&1 ||
+       ! run_user_systemctl is-enabled fedora-user-flatpak-update.timer >/dev/null 2>&1; then
+        USER_FLATPAK_CHECK="ÉCHEC — timer Flatpak utilisateur"
+    fi
+fi
+case "$USER_FLATPAK_CHECK" in VALIDÉ*) ;; *) CHECK_FAILED=1 ;; esac
+
+
 if [ "$CHECK_FAILED" -eq 0 ]; then
     OVERALL="CONTRÔLES AUTOMATIQUES VALIDÉS"
 else
@@ -518,6 +564,7 @@ REPORT_TMP="$(mktemp /var/lib/fedora-auto-update/.installation-check.XXXXXX)"
     printf 'Fichiers, contenus, permissions et unités : VALIDÉS\n'
     printf 'Timer système : %s\n' "$SYSTEM_TIMER_CHECK"
     printf 'Mise à jour réelle : %s\n' "$UPDATE_CHECK"
+    printf 'Flatpak utilisateur : %s\n' "$USER_FLATPAK_CHECK"
     printf 'Notifications et timer utilisateur : %s\n' "$NOTIFICATION_CHECK"
     printf '\nL’affichage visuel KDE ne peut pas être confirmé automatiquement (mode Ne pas déranger, réglages KDE).\n'
     printf 'Ce bilan décrit le contrôle effectué maintenant, pas une garantie des exécutions futures.\n'

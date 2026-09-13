@@ -1,0 +1,12 @@
+[Unit]
+Description=Update personal Flatpak applications
+StartLimitIntervalSec=24h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/fedora-user-flatpak-update
+TimeoutStartSec=60min
+UMask=0077
+Nice=10
+IOSchedulingClass=idle

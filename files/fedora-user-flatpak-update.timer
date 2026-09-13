@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule personal Flatpak updates
+
+[Timer]
+OnStartupSec=5min
+OnUnitActiveSec=24h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
