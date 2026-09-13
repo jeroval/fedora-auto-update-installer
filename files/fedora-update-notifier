@@ -11,10 +11,9 @@ exec 9>"$CACHE_DIR/notifier.lock"
 flock -n 9 || exit 0
 [ -f "$STATE_FILE" ] || exit 0
 
-# Une session sans serveur de notifications sera réessayée au prochain tick.
-if ! busctl --user list 2>/dev/null | grep -q 'org.freedesktop.Notifications'; then
-    exit 0
-fi
+# notify-send contacte directement le serveur et peut demander son activation.
+# Un précontrôle busctl | grep -q peut produire un faux échec avec pipefail
+# (SIGPIPE), et masquer la véritable raison d'un envoi impossible.
 
 EVENTS="$(mktemp "$CACHE_DIR/.events.XXXXXX")"
 trap 'rm -f -- "$EVENTS"' EXIT
@@ -67,8 +66,11 @@ while IFS= read -r -d '' EVENT_ID &&
             continue
         fi
     fi
-    notify-send --app-name="Fedora Update" --icon="$ICON" --urgency="$URGENCY" \
-        --expire-time=15000 "$TITLE" "$DETAIL"
+    if ! notify-send --app-name="Fedora Update" --icon="$ICON" --urgency="$URGENCY" \
+        --expire-time=15000 "$TITLE" "$DETAIL"; then
+        printf 'Envoi de notification échoué pour %s (%s).\n' "$EVENT_ID" "$STATUS" >&2
+        exit 1
+    fi
     if [ -n "$RECOMMENDATION_CACHE" ]; then
         printf '%s\n' "$BOOT_ID" > "$RECOMMENDATION_CACHE"
     fi

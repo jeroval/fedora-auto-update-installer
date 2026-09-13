@@ -474,21 +474,33 @@ fi
 
 NOTIFICATION_CHECK="NON VÉRIFIÉ — session utilisateur indisponible"
 if [ "$USER_SYSTEMD_OK" -eq 1 ]; then
-    NOTIFICATION_CHECK="ÉCHEC ou résultat non confirmé"
-    # Tester le vrai service utilisateur et vérifier qu'il a acquitté le résultat.
+    NOTIFICATION_CHECK="ÉCHEC — timer utilisateur inactif ou non activé"
     if run_user_systemctl is-active fedora-update-notifier.timer >/dev/null 2>&1 &&
-       run_user_systemctl is-enabled fedora-update-notifier.timer >/dev/null 2>&1 &&
-       run_user_systemctl start fedora-update-notifier.service &&
-       [ "$(run_user_systemctl show fedora-update-notifier.service -p Result --value)" = success ] &&
-       [ -n "$EXPECTED_EVENT" ]; then
-        # Le service peut utiliser un XDG_CACHE_HOME personnalisé dans son environnement.
+       run_user_systemctl is-enabled fedora-update-notifier.timer >/dev/null 2>&1; then
         NOTIFIER_CACHE="$USER_HOME/.cache"
-        USER_MANAGER_ENV="$(run_user_systemctl show-environment)"
+        USER_MANAGER_ENV="$(run_user_systemctl show-environment || true)"
         while IFS= read -r entry; do
             case "$entry" in XDG_CACHE_HOME=/*) NOTIFIER_CACHE="${entry#XDG_CACHE_HOME=}" ;; esac
         done <<< "$USER_MANAGER_ENV"
-        if [ "$(run_as_user cat "$NOTIFIER_CACHE/fedora-auto-update/last-event" 2>/dev/null || true)" = "$EXPECTED_EVENT" ]; then
-            NOTIFICATION_CHECK="VALIDÉ — événement final acquitté par le notificateur"
+        NOTIFICATION_CHECK="NON CONFIRMÉ — aucun résultat de mise à jour validé"
+        if [ -n "$EXPECTED_EVENT" ]; then
+            # Un service déjà lancé par le timer peut encore traiter un état
+            # antérieur. Retenter après sa fin au lieu de conclure immédiatement.
+            for attempt in 1 2 3; do
+                if ! run_user_systemctl start fedora-update-notifier.service; then
+                    NOTIFICATION_CHECK="ÉCHEC — service de notification ; consulter journalctl --user -u fedora-update-notifier.service"
+                elif [ "$(run_user_systemctl show fedora-update-notifier.service -p Result --value)" != success ]; then
+                    NOTIFICATION_CHECK="ÉCHEC — le service de notification ne rapporte pas un succès"
+                else
+                    OBSERVED_EVENT="$(run_as_user cat "$NOTIFIER_CACHE/fedora-auto-update/last-event" 2>/dev/null || true)"
+                    if [ "$OBSERVED_EVENT" = "$EXPECTED_EVENT" ]; then
+                        NOTIFICATION_CHECK="VALIDÉ — événement final acquitté par le notificateur"
+                        break
+                    fi
+                    NOTIFICATION_CHECK="NON CONFIRMÉ — attendu : $EXPECTED_EVENT ; reçu : ${OBSERVED_EVENT:-aucun} ; cache : $NOTIFIER_CACHE/fedora-auto-update/last-event"
+                fi
+                [ "$attempt" -eq 3 ] || sleep 1
+            done
         fi
     fi
 fi
