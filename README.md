@@ -272,10 +272,27 @@ Un manque d'espace disque, une exécution interrompue ou des échecs répétés
 produisent un message adapté. Les demandes matérielles spécifiques à fwupd
 restent à consulter dans ses logs : elles ne sont pas interprétées automatiquement.
 
+## Désinstallation
+
+Depuis le dossier du projet, dans la session de l'utilisateur ayant installé l'outil :
+
+```bash
+sudo ./uninstall.sh
+```
+
+Le script attend la fin d'une mise à jour en cours, désactive les timers et retire
+les scripts et unités système ainsi que ceux de cet utilisateur. Il peut être
+relancé si les fichiers ont déjà été supprimés. Les dépendances partagées, le dépôt
+Git, les overrides systemd, le cache utilisateur et les résultats dans
+`/var/lib/fedora-auto-update` sont conservés. Les configurations de notification
+d'autres utilisateurs ne sont pas supprimées.
+
+Une réinstallation reste possible avec `sudo ./install.sh`.
+
 ## Validation
 
 ```bash
-bash -n install.sh files/fedora-auto-update files/fedora-update-notifier
+bash -n install.sh uninstall.sh files/fedora-auto-update files/fedora-update-notifier
 python3 -m unittest discover -s tests -v
 ```
 
